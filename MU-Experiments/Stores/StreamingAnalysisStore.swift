@@ -19,10 +19,13 @@ final class StreamingAnalysisStore: ObservableObject {
     private var session: MusicUnderstandingSession?
     private var listenerTask: Task<Void, Never>?
     private var analysisTask: Task<Void, Never>?
+    private var activeRunID: UUID?
 
     func start() {
         stop()
 
+        let runID = UUID()
+        activeRunID = runID
         momentary = []
         shortTerm = []
         integratedLUFS = nil
@@ -42,14 +45,19 @@ final class StreamingAnalysisStore: ObservableObject {
             do {
                 for try await loudness in session.loudnessResults {
                     await MainActor.run {
+                        guard self?.activeRunID == runID else { return }
                         self?.append(loudness)
                     }
                 }
             } catch is CancellationError {
-                await MainActor.run { self?.status = "Stopped" }
+                await MainActor.run {
+                    guard self?.activeRunID == runID else { return }
+                    self?.status = "Stopped"
+                }
             } catch {
                 await MainActor.run {
-                    self?.status = "Stream failed: \(error.localizedDescription)"
+                    guard self?.activeRunID == runID else { return }
+                    self?.status = "Stream failed"
                     self?.isRunning = false
                 }
             }
@@ -59,24 +67,32 @@ final class StreamingAnalysisStore: ObservableObject {
             do {
                 _ = try await session.analyze(for: [.loudness])
                 await MainActor.run {
+                    guard self?.activeRunID == runID else { return }
+                    self?.activeRunID = nil
                     self?.isRunning = false
                     self?.status = "Streaming complete"
                 }
             } catch is CancellationError {
                 await MainActor.run {
+                    guard self?.activeRunID == runID else { return }
+                    self?.activeRunID = nil
                     self?.isRunning = false
                     self?.status = "Stopped"
                 }
             } catch {
                 await MainActor.run {
+                    guard self?.activeRunID == runID else { return }
+                    self?.activeRunID = nil
                     self?.isRunning = false
-                    self?.status = "Stream failed: \(error.localizedDescription)"
+                    self?.status = "Stream failed"
                 }
             }
         }
     }
 
     func stop() {
+        let wasRunning = isRunning
+        activeRunID = nil
         listenerTask?.cancel()
         analysisTask?.cancel()
         listenerTask = nil
@@ -89,7 +105,7 @@ final class StreamingAnalysisStore: ObservableObject {
         }
 
         isRunning = false
-        status = "Idle"
+        status = wasRunning ? "Stopped" : "Idle"
     }
 
     private func append(_ loudness: LoudnessResult) {

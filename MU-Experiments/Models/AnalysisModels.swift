@@ -125,6 +125,14 @@ struct RecentAnalysisRecord: Codable, Hashable, Identifiable {
     var title: String { document.source.name }
 }
 
+struct PendingAnalysisRecord: Equatable, Identifiable {
+    var id: UUID
+    var title: String
+    var status: String
+    var filePath: String?
+    var startedAt: Date
+}
+
 struct DatasetProgress: Equatable {
     var current: Int
     var total: Int

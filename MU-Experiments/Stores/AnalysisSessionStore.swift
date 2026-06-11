@@ -2,7 +2,6 @@
 import Combine
 import Foundation
 import MusicUnderstanding
-import SwiftUI
 import UniformTypeIdentifiers
 
 enum AnalysisRunState: Equatable {
@@ -46,28 +45,30 @@ final class AnalysisSessionStore: ObservableObject {
     @Published private(set) var selectedURL: URL?
     @Published private(set) var state: AnalysisRunState = .idle
     @Published private(set) var recentAnalyses: [RecentAnalysisRecord] = []
+    @Published private(set) var pendingAnalyses: [PendingAnalysisRecord] = []
     @Published private(set) var datasetDocuments: [MusicAnalysisDocument] = []
     @Published private(set) var datasetProgress: DatasetProgress?
     @Published private(set) var exportBundle: AnalysisExportBundle?
     @Published private(set) var datasetExportURL: URL?
-    @Published var selectedRoute: LabRoute = .fileLab {
-        didSet { showDetailColumn() }
-    }
+    @Published private(set) var unreadAnalysisIDs: Set<UUID> = []
+    @Published var selectedRoute: LabRoute = .fileLab
+    @Published var presentedAnalysisRecord: RecentAnalysisRecord?
+    @Published var isPracticeSongPickerPresented = false
     @Published var isSongImporterPresented = false
     @Published var isFolderImporterPresented = false
-    @Published var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
-    @Published var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
 
     private var activeSession: MusicUnderstandingSession?
     private let recentStorageKey = "MusicUnderstandingExperiments.recentAnalyses"
+
+    var unreadAnalysisCount: Int {
+        unreadAnalysisIDs.count
+    }
 
     init() {
         loadRecentAnalyses()
     }
 
     func analyzeFile(at url: URL, playback: AudioPlaybackStore? = nil) async {
-        selectedRoute = .fileLab
-        showDetailColumn()
         currentDocument = nil
         await analyzeURL(url, playback: playback, shouldPersistRecent: true, shouldSetCurrent: true)
     }
@@ -75,10 +76,33 @@ final class AnalysisSessionStore: ObservableObject {
     func openRecent(_ record: RecentAnalysisRecord, playback: AudioPlaybackStore? = nil) {
         currentDocument = record.document
         selectedRoute = .fileLab
-        showDetailColumn()
         state = .ready(record.document.source.name)
         exportBundle = nil
+        markAnalysisViewed(record)
 
+        loadPlayback(for: record, playback: playback)
+    }
+
+    func presentRecent(_ record: RecentAnalysisRecord, playback: AudioPlaybackStore? = nil) {
+        exportBundle = nil
+        presentedAnalysisRecord = record
+        markAnalysisViewed(record)
+        loadPlayback(for: record, playback: playback)
+    }
+
+    func selectPracticeSong(_ record: RecentAnalysisRecord, playback: AudioPlaybackStore? = nil) {
+        currentDocument = record.document
+        selectedRoute = .practice
+        state = .ready(record.document.source.name)
+        exportBundle = nil
+        loadPlayback(for: record, playback: playback)
+    }
+
+    func isAnalysisUnread(_ record: RecentAnalysisRecord) -> Bool {
+        unreadAnalysisIDs.contains(record.id)
+    }
+
+    func loadPlayback(for record: RecentAnalysisRecord, playback: AudioPlaybackStore? = nil) {
         guard let url = resolveURL(from: record) else { return }
 
         Task { @MainActor in
@@ -98,26 +122,31 @@ final class AnalysisSessionStore: ObservableObject {
         Task {
             await session?.cancel()
         }
+        pendingAnalyses.removeAll()
         state = .idle
-    }
-
-    func showDetailColumn() {
-        preferredCompactColumn = .detail
-        splitColumnVisibility = .automatic
-    }
-
-    func showSidebarColumn() {
-        preferredCompactColumn = .sidebar
-        splitColumnVisibility = .automatic
     }
 
     func prepareCurrentExport() {
         guard let currentDocument else { return }
+        prepareExport(for: currentDocument)
+    }
 
+    func prepareExport(for document: MusicAnalysisDocument) {
         do {
-            exportBundle = try AnalysisExportService.writeExports(for: currentDocument)
+            exportBundle = try AnalysisExportService.writeExports(for: document)
         } catch {
             state = .failed("Export failed: \(error.localizedDescription)")
+        }
+    }
+
+    func prepareComparisonDatasetExport() {
+        let documents = comparisonDocuments
+        guard !documents.isEmpty else { return }
+
+        do {
+            datasetExportURL = try AnalysisExportService.writeDatasetExport(for: documents)
+        } catch {
+            state = .failed("Dataset export failed: \(error.localizedDescription)")
         }
     }
 
@@ -162,9 +191,6 @@ final class AnalysisSessionStore: ObservableObject {
         if let currentDocument, !documents.contains(where: { $0.id == currentDocument.id }) {
             documents.insert(currentDocument, at: 0)
         }
-        for document in datasetDocuments where !documents.contains(where: { $0.id == document.id }) {
-            documents.append(document)
-        }
         return documents
     }
 
@@ -179,11 +205,14 @@ final class AnalysisSessionStore: ObservableObject {
         defer { access.stop() }
 
         let name = url.deletingPathExtension().lastPathComponent
+        let pendingID = shouldPersistRecent ? beginPendingAnalysis(title: name, filePath: url.path) : nil
+
         if shouldSetCurrent {
             selectedURL = url
             exportBundle = nil
             state = .loadingAsset(name)
         }
+        updatePendingAnalysis(id: pendingID, status: "Loading")
 
         do {
             let asset = AVURLAsset(url: url, options: [
@@ -197,6 +226,7 @@ final class AnalysisSessionStore: ObservableObject {
                 await playback?.load(asset: asset)
                 state = .analyzing(name)
             }
+            updatePendingAnalysis(id: pendingID, status: "Analyzing")
 
             let duration = try await asset.load(.duration).seconds
             let session = try await MusicUnderstandingSession(asset: asset)
@@ -214,12 +244,19 @@ final class AnalysisSessionStore: ObservableObject {
             if shouldPersistRecent {
                 addRecent(document: document, sourceURL: url)
             }
+            finishPendingAnalysis(id: pendingID)
 
             return document
         } catch is CancellationError {
-            state = .idle
+            activeSession = nil
+            finishPendingAnalysis(id: pendingID)
+            if shouldSetCurrent {
+                state = .idle
+            }
             return nil
         } catch {
+            activeSession = nil
+            finishPendingAnalysis(id: pendingID)
             if shouldSetCurrent {
                 state = .failed(error.localizedDescription)
             }
@@ -239,10 +276,54 @@ final class AnalysisSessionStore: ObservableObject {
             bookmarkData: bookmarkData(for: sourceURL)
         )
 
+        let replacedIDs = Set(recentAnalyses
+            .filter { $0.filePath == record.filePath || $0.document.source.urlString == document.source.urlString }
+            .map(\.id))
         recentAnalyses.removeAll { $0.filePath == record.filePath || $0.document.source.urlString == document.source.urlString }
         recentAnalyses.insert(record, at: 0)
         recentAnalyses = Array(recentAnalyses.prefix(20))
+        var unreadIDs = unreadAnalysisIDs.subtracting(replacedIDs)
+        unreadIDs.insert(record.id)
+        unreadAnalysisIDs = unreadIDs
+        datasetExportURL = nil
         saveRecentAnalyses()
+    }
+
+    private func markAnalysisViewed(_ record: RecentAnalysisRecord) {
+        guard unreadAnalysisIDs.contains(record.id) else { return }
+        var unreadIDs = unreadAnalysisIDs
+        unreadIDs.remove(record.id)
+        unreadAnalysisIDs = unreadIDs
+    }
+
+    private func beginPendingAnalysis(title: String, filePath: String?) -> UUID {
+        let record = PendingAnalysisRecord(
+            id: UUID(),
+            title: title,
+            status: "Loading",
+            filePath: filePath,
+            startedAt: Date()
+        )
+
+        pendingAnalyses.removeAll {
+            if let filePath, $0.filePath == filePath {
+                return true
+            }
+
+            return $0.title == title
+        }
+        pendingAnalyses.insert(record, at: 0)
+        return record.id
+    }
+
+    private func updatePendingAnalysis(id: UUID?, status: String) {
+        guard let id, let index = pendingAnalyses.firstIndex(where: { $0.id == id }) else { return }
+        pendingAnalyses[index].status = status
+    }
+
+    private func finishPendingAnalysis(id: UUID?) {
+        guard let id else { return }
+        pendingAnalyses.removeAll { $0.id == id }
     }
 
     private func loadRecentAnalyses() {

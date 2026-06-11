@@ -17,6 +17,18 @@ enum LabPalette {
     #endif
 }
 
+struct LabDescriptionView: View {
+    var description: String
+
+    var body: some View {
+        Text(description)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 struct LabPanel<Content: View>: View {
     var title: String
     var systemImage: String
@@ -40,6 +52,8 @@ struct LabPanel<Content: View>: View {
             HStack {
                 Label(title, systemImage: systemImage)
                     .font(.headline)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
                 Spacer()
                 if let trailing {
                     trailing
@@ -261,44 +275,37 @@ struct PlaybackCursorOverlay: View {
 
 struct RecentAnalysisList: View {
     @EnvironmentObject private var analysisStore: AnalysisSessionStore
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     var onOpen: (RecentAnalysisRecord) -> Void
+
+    private var isCompact: Bool {
+        horizontalSizeClass == .compact
+    }
 
     var body: some View {
         LabPanel("Recent Analyses", systemImage: "clock") {
-            if analysisStore.recentAnalyses.isEmpty {
+            if analysisStore.pendingAnalyses.isEmpty && analysisStore.recentAnalyses.isEmpty {
                 EmptyPanelState(title: "Select a song to create the first analysis.")
             } else {
                 VStack(spacing: 0) {
+                    ForEach(analysisStore.pendingAnalyses) { record in
+                        PendingAnalysisListRow(record: record)
+
+                        if record.id != analysisStore.pendingAnalyses.last?.id || !analysisStore.recentAnalyses.isEmpty {
+                            Divider()
+                        }
+                    }
+
                     ForEach(analysisStore.recentAnalyses) { record in
                         Button {
                             onOpen(record)
                         } label: {
-                            HStack(spacing: 12) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(record.title)
-                                        .font(.body.weight(.medium))
-                                        .lineLimit(1)
-                                    Text(record.analyzedAt, style: .date)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-
-                                Spacer()
-
-                                Text(record.document.primaryKeyDisplay)
-                                    .font(.callout.weight(.medium))
-                                    .frame(width: 86, alignment: .trailing)
-
-                                Text(record.document.rhythm.beatsPerMinute.map { String(format: "%.0f BPM", $0) } ?? "No BPM")
-                                    .font(.callout.monospacedDigit())
-                                    .frame(width: 78, alignment: .trailing)
-
-                                Text(record.document.formattedDuration)
-                                    .font(.callout.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 64, alignment: .trailing)
-                            }
-                            .padding(.vertical, 8)
+                            RecentAnalysisRow(
+                                record: record,
+                                isCompact: isCompact,
+                                isUnread: analysisStore.isAnalysisUnread(record)
+                            )
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
 
@@ -309,6 +316,152 @@ struct RecentAnalysisList: View {
                 }
             }
         }
+    }
+}
+
+private struct PendingAnalysisListRow: View {
+    @EnvironmentObject private var analysisStore: AnalysisSessionStore
+    var record: PendingAnalysisRecord
+
+    var body: some View {
+        Button {
+            analysisStore.selectedRoute = .fileLab
+        } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(record.title)
+                        .font(.body.weight(.medium))
+                        .lineLimit(1)
+                    Text(record.startedAt, style: .time)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 8)
+
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(record.status)
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(LabPalette.accent)
+                }
+            }
+            .padding(.vertical, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct RecentAnalysisRow: View {
+    var record: RecentAnalysisRecord
+    var isCompact: Bool
+    var isUnread: Bool
+
+    var body: some View {
+        if isCompact {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(record.title)
+                            .font(.body.weight(.medium))
+                            .lineLimit(1)
+                        Text(record.analyzedAt, style: .date)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if isUnread {
+                        RecentStatusPill("Ready")
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    RecentMetricPill(record.document.primaryKeyDisplay)
+                    RecentMetricPill(record.document.rhythm.beatsPerMinute.map { String(format: "%.0f BPM", $0) } ?? "No BPM")
+                    RecentMetricPill(record.document.formattedDuration)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 9)
+        } else {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(record.title)
+                        .font(.body.weight(.medium))
+                        .lineLimit(1)
+                    Text(record.analyzedAt, style: .date)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if isUnread {
+                    RecentStatusPill("Ready")
+                }
+
+                Text(record.document.primaryKeyDisplay)
+                    .font(.callout.weight(.medium))
+                    .frame(width: 86, alignment: .trailing)
+
+                Text(record.document.rhythm.beatsPerMinute.map { String(format: "%.0f BPM", $0) } ?? "No BPM")
+                    .font(.callout.monospacedDigit())
+                    .frame(width: 78, alignment: .trailing)
+
+                Text(record.document.formattedDuration)
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 64, alignment: .trailing)
+            }
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+private struct RecentStatusPill: View {
+    var value: String
+
+    init(_ value: String) {
+        self.value = value
+    }
+
+    var body: some View {
+        Text(value)
+            .font(.caption.weight(.semibold))
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .foregroundStyle(LabPalette.accent)
+            .background {
+                Capsule()
+                    .fill(LabPalette.accent.opacity(0.12))
+            }
+    }
+}
+
+private struct RecentMetricPill: View {
+    var value: String
+
+    init(_ value: String) {
+        self.value = value
+    }
+
+    var body: some View {
+        Text(value)
+            .font(.caption.weight(.medium))
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background {
+                Capsule()
+                    .fill(Color.primary.opacity(0.06))
+            }
     }
 }
 

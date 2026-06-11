@@ -6,7 +6,6 @@ enum LabRoute: String, CaseIterable, Identifiable {
     case batch
     case dj
     case practice
-    case dataset
     case streaming
 
     var id: String { rawValue }
@@ -14,10 +13,9 @@ enum LabRoute: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .fileLab: "Analysis"
-        case .batch: "Batch Compare"
+        case .batch: "Data Compare"
         case .dj: "DJ Finder"
         case .practice: "Practice"
-        case .dataset: "Dataset"
         case .streaming: "Streaming"
         }
     }
@@ -28,10 +26,26 @@ enum LabRoute: String, CaseIterable, Identifiable {
         case .batch: "tablecells"
         case .dj: "slider.horizontal.3"
         case .practice: "repeat"
-        case .dataset: "externaldrive"
         case .streaming: "dot.radiowaves.left.and.right"
         }
     }
+
+    var description: String {
+        switch self {
+        case .fileLab:
+            "Analyze one song for key, tempo, structure, loudness, and playback timelines."
+        case .batch:
+            "Compare analyzed songs and share them as a dataset export."
+        case .dj:
+            "Find transition-friendly song pairs using tempo, key, and energy matching."
+        case .practice:
+            "Loop sections, jump to beats, and rehearse count-ins against the track."
+        case .streaming:
+            "Generate a PCM stream and inspect loudness metrics in real time."
+        }
+    }
+
+    static let tabs: [LabRoute] = [.fileLab, .batch, .dj, .practice, .streaming]
 }
 
 struct ContentView: View {
@@ -39,49 +53,44 @@ struct ContentView: View {
     @EnvironmentObject private var playbackStore: AudioPlaybackStore
 
     var body: some View {
-        NavigationSplitView(
-            columnVisibility: splitVisibilityBinding,
-            preferredCompactColumn: compactColumnBinding
-        ) {
-            SidebarView(route: routeBinding, isSongImporterPresented: songImporterBinding)
-                .navigationTitle("MU Experiments")
-        } detail: {
-            Group {
-                switch analysisStore.selectedRoute {
-                case .fileLab:
-                    if analysisStore.state.isPreparingAnalysis {
-                        AnalysisLoadingView()
-                    } else if let message = analysisStore.state.failedMessage {
-                        AnalysisFailureView(message: message, isSongImporterPresented: songImporterBinding)
-                    } else if analysisStore.currentDocument != nil {
-                        MainLabView()
-                    } else {
-                        HomeView(isSongImporterPresented: songImporterBinding)
-                    }
-                case .batch:
-                    BatchCompareView()
-                case .dj:
-                    DJTransitionFinderView()
-                case .practice:
-                    PracticeCompanionView()
-                case .dataset:
-                    DatasetModeView()
-                case .streaming:
-                    StreamingLabView()
+        TabView(selection: routeBinding) {
+            ForEach(LabRoute.tabs) { route in
+                NavigationStack {
+                    screen(for: route)
+                        .navigationTitle(route.title)
                 }
+                .tabItem {
+                    Label(route.title, systemImage: route.systemImage)
+                }
+                .tag(route)
+                .badge(route == .fileLab ? analysisStore.unreadAnalysisCount : 0)
             }
-            .navigationTitle(analysisStore.selectedRoute.title)
         }
         .tint(LabPalette.accent)
         .fileImporter(isPresented: songImporterBinding, allowedContentTypes: [.audio]) { result in
             guard case .success(let url) = result else { return }
-            analysisStore.selectedRoute = .fileLab
             Task {
                 await analysisStore.analyzeFile(at: url, playback: playbackStore)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .showSongImporter)) { _ in
             analysisStore.isSongImporterPresented = true
+        }
+    }
+
+    @ViewBuilder
+    private func screen(for route: LabRoute) -> some View {
+        switch route {
+        case .fileLab:
+            analysisScreen
+        case .batch:
+            BatchCompareView()
+        case .dj:
+            DJTransitionFinderView()
+        case .practice:
+            PracticeCompanionView()
+        case .streaming:
+            StreamingLabView()
         }
     }
 
@@ -92,135 +101,20 @@ struct ContentView: View {
         )
     }
 
+    @ViewBuilder
+    private var analysisScreen: some View {
+        if let message = analysisStore.state.failedMessage {
+            AnalysisFailureView(message: message, isSongImporterPresented: songImporterBinding)
+        } else {
+            HomeView(isSongImporterPresented: songImporterBinding)
+        }
+    }
+
     private var songImporterBinding: Binding<Bool> {
         Binding(
             get: { analysisStore.isSongImporterPresented },
             set: { analysisStore.isSongImporterPresented = $0 }
         )
-    }
-
-    private var splitVisibilityBinding: Binding<NavigationSplitViewVisibility> {
-        Binding(
-            get: { analysisStore.splitColumnVisibility },
-            set: { analysisStore.splitColumnVisibility = $0 }
-        )
-    }
-
-    private var compactColumnBinding: Binding<NavigationSplitViewColumn> {
-        Binding(
-            get: { analysisStore.preferredCompactColumn },
-            set: { analysisStore.preferredCompactColumn = $0 }
-        )
-    }
-}
-
-private struct SidebarView: View {
-    @EnvironmentObject private var analysisStore: AnalysisSessionStore
-    @EnvironmentObject private var playbackStore: AudioPlaybackStore
-
-    @Binding var route: LabRoute
-    @Binding var isSongImporterPresented: Bool
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                Button {
-                    isSongImporterPresented = true
-                } label: {
-                    Label("Select Song", systemImage: "folder.badge.plus")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-
-                SidebarSection("Analysis") {
-                    SidebarRouteRow(route: .fileLab, selectedRoute: $route)
-                }
-
-                SidebarSection("Recent") {
-                    if analysisStore.recentAnalyses.isEmpty {
-                        Text("No analyses yet")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .padding(.vertical, 6)
-                    } else {
-                        ForEach(analysisStore.recentAnalyses) { record in
-                            Button {
-                                analysisStore.openRecent(record, playback: playbackStore)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(record.title)
-                                        .lineLimit(1)
-                                    Text("\(record.document.primaryKeyDisplay) | \(record.document.rhythm.beatsPerMinute.map { String(format: "%.0f BPM", $0) } ?? "No BPM")")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 8)
-                                .background {
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .fill(Color.primary.opacity(0.045))
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-
-                SidebarSection("Labs") {
-                    ForEach([LabRoute.batch, .dj, .practice, .dataset, .streaming]) { route in
-                        SidebarRouteRow(route: route, selectedRoute: $route)
-                    }
-                }
-            }
-            .padding(12)
-        }
-    }
-}
-
-private struct SidebarSection<Content: View>: View {
-    let title: String
-    @ViewBuilder var content: Content
-
-    init(_ title: String, @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-                .padding(.horizontal, 10)
-
-            content
-        }
-    }
-}
-
-private struct SidebarRouteRow: View {
-    let route: LabRoute
-    @Binding var selectedRoute: LabRoute
-
-    var body: some View {
-        Button {
-            selectedRoute = route
-        } label: {
-            Label(route.title, systemImage: route.systemImage)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(selectedRoute == route ? LabPalette.accent.opacity(0.16) : Color.clear)
-                }
-                .foregroundStyle(selectedRoute == route ? LabPalette.accent : .primary)
-                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -232,36 +126,45 @@ struct HomeView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .center) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("MusicUnderstandingExperiments")
-                            .font(.title2.weight(.semibold))
-                        Text(analysisStore.state.label)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer()
-
-                    Button {
-                        isSongImporterPresented = true
-                    } label: {
-                        Label("Select Song", systemImage: "folder")
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
+            VStack(alignment: .leading, spacing: 16) {
+                LabDescriptionView(description: LabRoute.fileLab.description)
 
                 RecentAnalysisList { record in
-                    analysisStore.openRecent(record, playback: playbackStore)
+                    analysisStore.presentRecent(record, playback: playbackStore)
                 }
-
-                BatchSnapshotPanel(documents: analysisStore.comparisonDocuments)
             }
-            .padding()
+            .padding([.horizontal, .top])
             .frame(maxWidth: 1100, alignment: .leading)
         }
         .background(LabPalette.windowBackground)
+        .safeAreaInset(edge: .bottom) {
+            selectSongButton
+                .padding(.horizontal)
+                .padding(.top, 8)
+                .padding(.bottom, 10)
+                .background(.bar)
+        }
+        .sheet(item: presentedRecordBinding) { record in
+            AnalysisDocumentSheetView(record: record)
+        }
+    }
+
+    private var presentedRecordBinding: Binding<RecentAnalysisRecord?> {
+        Binding(
+            get: { analysisStore.presentedAnalysisRecord },
+            set: { analysisStore.presentedAnalysisRecord = $0 }
+        )
+    }
+
+    private var selectSongButton: some View {
+        Button {
+            isSongImporterPresented = true
+        } label: {
+            Label("Select & Analyze Song", systemImage: "square.and.arrow.down")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
     }
 }
 

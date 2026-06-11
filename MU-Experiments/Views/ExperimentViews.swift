@@ -13,6 +13,7 @@ struct BatchCompareView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                LabDescriptionView(description: LabRoute.batch.description)
                 BatchSnapshotPanel(documents: analysisStore.comparisonDocuments)
 
                 LabPanel("Song Comparison", systemImage: "tablecells") {
@@ -41,12 +42,65 @@ struct BatchCompareView: View {
                 }
 
                 BatchCharts(documents: analysisStore.comparisonDocuments)
+                DataCompareExportPanel()
             }
             .padding()
             .frame(maxWidth: 1180, alignment: .topLeading)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .background(LabPalette.windowBackground)
+    }
+}
+
+private struct DataCompareExportPanel: View {
+    @EnvironmentObject private var analysisStore: AnalysisSessionStore
+
+    var body: some View {
+        LabPanel("Dataset Export", systemImage: "square.and.arrow.up") {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    exportSummary
+                    shareDatasetButton
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    exportSummary
+                    shareDatasetButton
+                }
+            }
+        }
+    }
+
+    private var exportSummary: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("\(analysisStore.comparisonDocuments.count) analyzed songs")
+                .font(.headline)
+            Text("Exports the songs listed below as a dataset.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var shareDatasetButton: some View {
+        Group {
+            if let url = analysisStore.datasetExportURL {
+                ShareLink(item: url) {
+                    Label("Share Dataset", systemImage: "square.and.arrow.up")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            } else {
+                Button {
+                    analysisStore.prepareComparisonDatasetExport()
+                } label: {
+                    Label("Prepare Dataset", systemImage: "square.and.arrow.up")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .disabled(analysisStore.comparisonDocuments.isEmpty)
+            }
+        }
     }
 }
 
@@ -191,6 +245,7 @@ struct DJTransitionFinderView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                LabDescriptionView(description: LabRoute.dj.description)
                 LabPanel("Transition Candidates", systemImage: "slider.horizontal.3") {
                     if candidates.isEmpty {
                         EmptyPanelState(title: "Analyze at least two songs.")
@@ -262,8 +317,29 @@ struct PracticeCompanionView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                LabDescriptionView(description: LabRoute.practice.description)
                 if let document = analysisStore.currentDocument {
+                    LabPanel("Practice Song", systemImage: "music.note") {
+                        ViewThatFits(in: .horizontal) {
+                            HStack(alignment: .center, spacing: 12) {
+                                practiceSongSummary(document: document)
+                                Spacer(minLength: 12)
+                                changeSongButton
+                                    .fixedSize(horizontal: true, vertical: false)
+                            }
+
+                            VStack(alignment: .leading, spacing: 10) {
+                                practiceSongSummary(document: document)
+                                changeSongButton
+                            }
+                        }
+                    }
+
                     LabPanel("Beat And Bar Looping", systemImage: "repeat") {
+                        PracticeTransportBar(document: document)
+
+                        Divider()
+
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
                             MetricChip(title: "Current Time", value: playbackStore.formattedCurrentTime, tint: LabPalette.blue)
                             MetricChip(
@@ -284,7 +360,21 @@ struct PracticeCompanionView: View {
                     CountInMarkersView(document: document)
                 } else {
                     LabPanel("Practice", systemImage: "repeat") {
-                        EmptyPanelState(title: "Load an analysis to set loops.")
+                        if analysisStore.state.isPreparingAnalysis {
+                            VStack(spacing: 12) {
+                                ProgressView()
+                                Text(analysisStore.state.label)
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 100)
+                        } else {
+                            VStack(spacing: 12) {
+                                EmptyPanelState(title: analysisStore.recentAnalyses.isEmpty ? "Analyze a song first, then choose it here." : "Choose an analyzed song to set beat and section loops.")
+                                selectSongButton
+                            }
+                        }
                     }
                 }
             }
@@ -292,6 +382,186 @@ struct PracticeCompanionView: View {
             .frame(maxWidth: 980, alignment: .topLeading)
         }
         .background(LabPalette.windowBackground)
+        .sheet(isPresented: practicePickerBinding) {
+            PracticeSongPickerView()
+        }
+    }
+
+    private var practicePickerBinding: Binding<Bool> {
+        Binding(
+            get: { analysisStore.isPracticeSongPickerPresented },
+            set: { analysisStore.isPracticeSongPickerPresented = $0 }
+        )
+    }
+
+    private func practiceSongSummary(document: MusicAnalysisDocument) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(document.source.name)
+                .font(.headline)
+                .lineLimit(2)
+                .minimumScaleFactor(0.82)
+            Text("\(document.primaryKeyDisplay) • \(document.rhythm.beatsPerMinute.map { String(format: "%.0f BPM", $0) } ?? "No BPM") • \(document.formattedDuration)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var selectSongButton: some View {
+        Button {
+            analysisStore.selectedRoute = .practice
+            analysisStore.isPracticeSongPickerPresented = true
+        } label: {
+            Label("Choose Analyzed Song", systemImage: "music.note.list")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(analysisStore.recentAnalyses.isEmpty)
+    }
+
+    private var changeSongButton: some View {
+        Button {
+            analysisStore.selectedRoute = .practice
+            analysisStore.isPracticeSongPickerPresented = true
+        } label: {
+            Label("Change Song", systemImage: "folder")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+    }
+}
+
+private struct PracticeSongPickerView: View {
+    @EnvironmentObject private var analysisStore: AnalysisSessionStore
+    @EnvironmentObject private var playbackStore: AudioPlaybackStore
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if analysisStore.recentAnalyses.isEmpty {
+                        LabPanel("Analyzed Songs", systemImage: "music.note.list") {
+                            EmptyPanelState(title: "No analyzed songs yet.")
+                        }
+                    } else {
+                        LabPanel("Analyzed Songs", systemImage: "music.note.list") {
+                            VStack(spacing: 0) {
+                                ForEach(analysisStore.recentAnalyses) { record in
+                                    Button {
+                                        analysisStore.selectPracticeSong(record, playback: playbackStore)
+                                        dismiss()
+                                    } label: {
+                                        PracticeSongPickerRow(record: record)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    if record.id != analysisStore.recentAnalyses.last?.id {
+                                        Divider()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding()
+            }
+            .background(LabPalette.windowBackground)
+            .navigationTitle("Choose Song")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct PracticeSongPickerRow: View {
+    var record: RecentAnalysisRecord
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(record.title)
+                    .font(.body.weight(.medium))
+                    .lineLimit(1)
+                Text(record.analyzedAt, style: .date)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(record.document.rhythm.beatsPerMinute.map { String(format: "%.0f BPM", $0) } ?? "No BPM")
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(.secondary)
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct PracticeTransportBar: View {
+    @EnvironmentObject private var playbackStore: AudioPlaybackStore
+    var document: MusicAnalysisDocument
+
+    var body: some View {
+        let playbackDuration = max(playbackStore.duration, document.duration, 1)
+
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Button {
+                    playbackStore.isPlaying ? playbackStore.stop() : playbackStore.play()
+                } label: {
+                    Label(playbackStore.isPlaying ? "Stop" : "Play", systemImage: playbackStore.isPlaying ? "stop.fill" : "play.fill")
+                }
+                .buttonStyle(.borderedProminent)
+
+                Text(playbackStore.formattedCurrentTime)
+                    .font(.callout.monospacedDigit())
+                    .frame(width: 58, alignment: .trailing)
+
+                Slider(
+                    value: Binding(
+                        get: { playbackStore.currentTime },
+                        set: { playbackStore.seek(to: $0) }
+                    ),
+                    in: 0...playbackDuration
+                )
+
+                Text(playbackStore.formattedDuration == "0:00" ? document.formattedDuration : playbackStore.formattedDuration)
+                    .font(.callout.monospacedDigit())
+                    .frame(width: 58, alignment: .leading)
+            }
+
+            if let loop = playbackStore.loopRange {
+                HStack(spacing: 8) {
+                    Label(
+                        "\(AnalysisDerived.formatTime(loop.start)) - \(AnalysisDerived.formatTime(loop.end))",
+                        systemImage: "repeat"
+                    )
+                    .font(.callout)
+                    .foregroundStyle(LabPalette.accent)
+
+                    Button {
+                        playbackStore.setLoop(nil)
+                    } label: {
+                        Label("Clear Loop", systemImage: "xmark.circle")
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+        }
     }
 }
 
@@ -360,137 +630,36 @@ private struct CountInMarkersView: View {
     }
 }
 
-struct DatasetModeView: View {
-    @EnvironmentObject private var analysisStore: AnalysisSessionStore
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-
-    private var isCompact: Bool {
-        horizontalSizeClass == .compact
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                LabPanel("Dataset Mode", systemImage: "externaldrive") {
-                    HStack {
-                        Button {
-                            analysisStore.isFolderImporterPresented = true
-                        } label: {
-                            Label("Select Folder", systemImage: "folder")
-                        }
-                        .buttonStyle(.borderedProminent)
-
-                        if let progress = analysisStore.datasetProgress {
-                            ProgressView(value: Double(progress.current), total: Double(max(progress.total, 1))) {
-                                Text(progress.currentFileName)
-                            }
-                            .frame(maxWidth: 360)
-                        }
-
-                        Spacer()
-
-                        if let url = analysisStore.datasetExportURL {
-                            ShareLink(item: url) {
-                                Label("Share Dataset", systemImage: "square.and.arrow.up")
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                    }
-                }
-
-                BatchSnapshotPanel(documents: analysisStore.datasetDocuments)
-
-                LabPanel("Dataset Results", systemImage: "list.bullet.rectangle") {
-                    if analysisStore.datasetDocuments.isEmpty {
-                        EmptyPanelState(title: "No dataset rows.")
-                    } else {
-                        if isCompact {
-                            VStack(spacing: 10) {
-                                ForEach(analysisStore.datasetDocuments) { document in
-                                    CompactComparisonCard(document: document)
-                                }
-                            }
-                        } else {
-                            VStack(spacing: 0) {
-                                ComparisonHeader()
-                                Divider()
-                                ForEach(analysisStore.datasetDocuments) { document in
-                                    ComparisonRow(document: document)
-                                    if document.id != analysisStore.datasetDocuments.last?.id {
-                                        Divider()
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            .padding()
-            .frame(maxWidth: 1100, alignment: .topLeading)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-        }
-        .background(LabPalette.windowBackground)
-        .fileImporter(isPresented: folderImporterBinding, allowedContentTypes: [.folder]) { result in
-            guard case .success(let url) = result else { return }
-            Task {
-                await analysisStore.runDataset(folderURL: url)
-            }
-        }
-    }
-
-    private var folderImporterBinding: Binding<Bool> {
-        Binding(
-            get: { analysisStore.isFolderImporterPresented },
-            set: { analysisStore.isFolderImporterPresented = $0 }
-        )
-    }
-}
-
 struct StreamingLabView: View {
     @EnvironmentObject private var streamingStore: StreamingAnalysisStore
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                LabDescriptionView(description: LabRoute.streaming.description)
                 LabPanel("PCM Stream", systemImage: "dot.radiowaves.left.and.right") {
-                    VStack(spacing: 12) {
-                        HStack {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack(spacing: 12) {
                             Button {
                                 streamingStore.isRunning ? streamingStore.stop() : streamingStore.start()
                             } label: {
                                 Label(streamingStore.isRunning ? "Stop" : "Start", systemImage: streamingStore.isRunning ? "stop.fill" : "play.fill")
+                                    .frame(minWidth: 92)
                             }
                             .buttonStyle(.borderedProminent)
 
                             Text(streamingStore.status)
+                                .font(.callout)
                                 .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.8)
 
-                            Spacer()
+                            Spacer(minLength: 0)
                         }
 
-                        LabeledContent("Frequency") {
-                            Slider(value: $streamingStore.frequency, in: 80...880)
-                                .frame(maxWidth: 320)
-                            Text("\(Int(streamingStore.frequency)) Hz")
-                                .font(.callout.monospacedDigit())
-                                .frame(width: 72, alignment: .trailing)
-                        }
-
-                        LabeledContent("Amplitude") {
-                            Slider(value: $streamingStore.amplitude, in: 0.05...0.95)
-                                .frame(maxWidth: 320)
-                            Text(String(format: "%.2f", streamingStore.amplitude))
-                                .font(.callout.monospacedDigit())
-                                .frame(width: 72, alignment: .trailing)
-                        }
-
-                        LabeledContent("Duration") {
-                            Slider(value: $streamingStore.duration, in: 6...60)
-                                .frame(maxWidth: 320)
-                            Text("\(Int(streamingStore.duration)) s")
-                                .font(.callout.monospacedDigit())
-                                .frame(width: 72, alignment: .trailing)
-                        }
+                        StreamControlRow(title: "Frequency", value: $streamingStore.frequency, bounds: 80...880, formattedValue: "\(Int(streamingStore.frequency)) Hz")
+                        StreamControlRow(title: "Amplitude", value: $streamingStore.amplitude, bounds: 0.05...0.95, formattedValue: String(format: "%.2f", streamingStore.amplitude))
+                        StreamControlRow(title: "Duration", value: $streamingStore.duration, bounds: 6...60, formattedValue: "\(Int(streamingStore.duration)) s")
                     }
                 }
 
@@ -521,5 +690,27 @@ struct StreamingLabView: View {
             .frame(maxWidth: 980, alignment: .topLeading)
         }
         .background(LabPalette.windowBackground)
+    }
+}
+
+private struct StreamControlRow: View {
+    var title: String
+    @Binding var value: Double
+    var bounds: ClosedRange<Double>
+    var formattedValue: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(title)
+                    .font(.callout.weight(.medium))
+                Spacer()
+                Text(formattedValue)
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            Slider(value: $value, in: bounds)
+        }
     }
 }

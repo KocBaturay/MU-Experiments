@@ -6,23 +6,71 @@ struct MainLabView: View {
 
     var body: some View {
         if let document = analysisStore.currentDocument {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    LabHeaderView(document: document)
-                    TransportPanel(document: document)
-                    SampleStyleAnalysisTiles(document: document)
-                    ArrangementTimelineView(document: document)
-                    SectionMixerMapView(document: document)
-                    AnalysisPanelGrid(document: document)
+            AnalysisDocumentContent(document: document) {
+                LabHeaderView(document: document, status: analysisStore.state.label) {
+                    CurrentAnalysisExportAction()
                 }
-                .padding()
-                .frame(maxWidth: 1280, alignment: .topLeading)
             }
-            .background(LabPalette.windowBackground)
         } else {
             EmptyPanelState(title: "No analysis loaded.")
                 .background(LabPalette.windowBackground)
         }
+    }
+}
+
+struct AnalysisDocumentSheetView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var playbackStore: AudioPlaybackStore
+    let record: RecentAnalysisRecord
+
+    var body: some View {
+        NavigationStack {
+            AnalysisDocumentContent(document: record.document, showsDescription: false) {
+                SheetAnalysisHeader(record: record)
+            }
+            .navigationTitle("Analysis")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        stopAndDismiss()
+                    }
+                }
+            }
+        }
+        .onDisappear {
+            playbackStore.stop()
+        }
+    }
+
+    private func stopAndDismiss() {
+        playbackStore.stop()
+        dismiss()
+    }
+}
+
+private struct AnalysisDocumentContent<Header: View>: View {
+    let document: MusicAnalysisDocument
+    var showsDescription = true
+    @ViewBuilder var header: () -> Header
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                if showsDescription {
+                    LabDescriptionView(description: LabRoute.fileLab.description)
+                }
+                header()
+                TransportPanel(document: document)
+                SampleStyleAnalysisTiles(document: document)
+                ArrangementTimelineView(document: document)
+                SectionMixerMapView(document: document)
+                AnalysisPanelGrid(document: document)
+            }
+            .padding()
+            .frame(maxWidth: 1280, alignment: .topLeading)
+        }
+        .background(LabPalette.windowBackground)
     }
 }
 
@@ -228,38 +276,26 @@ private struct SampleLoudnessTile: View {
     }
 }
 
-private struct LabHeaderView: View {
-    @EnvironmentObject private var analysisStore: AnalysisSessionStore
+private struct LabHeaderView<ExportAction: View>: View {
     let document: MusicAnalysisDocument
+    let status: String
+    @ViewBuilder var exportAction: () -> ExportAction
 
     var body: some View {
         LabPanel("Current Song", systemImage: "music.note") {
-            HStack(alignment: .top, spacing: 14) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(document.source.name)
-                        .font(.title2.weight(.semibold))
-                        .lineLimit(2)
-                    Text(analysisStore.state.label)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 14) {
+                    songSummary
+
+                    Spacer(minLength: 12)
+
+                    exportAction()
+                        .fixedSize(horizontal: true, vertical: false)
                 }
 
-                Spacer()
-
-                HStack(spacing: 8) {
-                    Button {
-                        analysisStore.prepareCurrentExport()
-                    } label: {
-                        Label("Prepare Export", systemImage: "doc.badge.arrow.up")
-                    }
-                    .buttonStyle(.bordered)
-
-                    if let bundle = analysisStore.exportBundle {
-                        ShareLink(items: bundle.urls) {
-                            Label("Share", systemImage: "square.and.arrow.up")
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
+                VStack(alignment: .leading, spacing: 12) {
+                    songSummary
+                    exportAction()
                 }
             }
 
@@ -273,6 +309,77 @@ private struct LabHeaderView: View {
             }
         }
     }
+
+    private var songSummary: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(document.source.name)
+                .font(.title2.weight(.semibold))
+                .lineLimit(2)
+                .minimumScaleFactor(0.82)
+            Text(status)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct CurrentAnalysisExportAction: View {
+    @EnvironmentObject private var analysisStore: AnalysisSessionStore
+
+    @ViewBuilder
+    var body: some View {
+        if let bundle = analysisStore.exportBundle {
+            ShareLink(items: bundle.urls) {
+                Label("Share Export", systemImage: "square.and.arrow.up")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+        } else {
+            Button {
+                analysisStore.prepareCurrentExport()
+            } label: {
+                Label("Prepare Export", systemImage: "doc.badge.arrow.up")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+        }
+    }
+}
+
+private struct SheetAnalysisHeader: View {
+    @EnvironmentObject private var analysisStore: AnalysisSessionStore
+    let record: RecentAnalysisRecord
+
+    var body: some View {
+        LabHeaderView(document: record.document, status: statusText) {
+            exportAction
+        }
+    }
+
+    private var statusText: String {
+        "Ready \(record.document.source.name)"
+    }
+
+    @ViewBuilder
+    private var exportAction: some View {
+        if let bundle = analysisStore.exportBundle {
+            ShareLink(items: bundle.urls) {
+                Label("Share Export", systemImage: "square.and.arrow.up")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+        } else {
+            Button {
+                analysisStore.prepareExport(for: record.document)
+            } label: {
+                Label("Prepare Export", systemImage: "doc.badge.arrow.up")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+        }
+    }
 }
 
 private struct TransportPanel: View {
@@ -281,43 +388,48 @@ private struct TransportPanel: View {
 
     var body: some View {
         LabPanel("Transport", systemImage: "playpause") {
+            let playbackDuration = max(playbackStore.duration, document.duration, 1)
+            let trailingWidth: CGFloat = 58
+
             HStack(spacing: 12) {
                 Button {
-                    playbackStore.togglePlayback()
+                    playbackStore.isPlaying ? playbackStore.stop() : playbackStore.play()
                 } label: {
-                    Image(systemName: playbackStore.isPlaying ? "pause.fill" : "play.fill")
+                    Label(playbackStore.isPlaying ? "Stop" : "Play", systemImage: playbackStore.isPlaying ? "stop.fill" : "play.fill")
+                        .labelStyle(.iconOnly)
                         .frame(width: 22)
                 }
-                .help(playbackStore.isPlaying ? "Pause" : "Play")
-
-                Button {
-                    playbackStore.stop()
-                } label: {
-                    Image(systemName: "stop.fill")
-                        .frame(width: 22)
-                }
-                .help("Stop")
+                .buttonStyle(.borderedProminent)
+                .help(playbackStore.isPlaying ? "Stop" : "Play")
 
                 Text(playbackStore.formattedCurrentTime)
                     .font(.callout.monospacedDigit())
-                    .frame(width: 58, alignment: .trailing)
+                    .frame(width: 48, alignment: .leading)
 
                 Slider(
                     value: Binding(
                         get: { playbackStore.currentTime },
                         set: { playbackStore.seek(to: $0) }
                     ),
-                    in: 0...max(playbackStore.duration, document.duration, 1)
+                    in: 0...playbackDuration
                 )
 
                 Text(playbackStore.formattedDuration == "0:00" ? document.formattedDuration : playbackStore.formattedDuration)
                     .font(.callout.monospacedDigit())
-                    .frame(width: 58, alignment: .leading)
+                    .frame(width: trailingWidth, alignment: .trailing)
+            }
 
+            HStack(spacing: 12) {
                 Image(systemName: "speaker.wave.2")
                     .foregroundStyle(.secondary)
+                    .frame(width: 28, alignment: .leading)
+
                 Slider(value: $playbackStore.volume, in: 0...1)
-                    .frame(maxWidth: 120)
+
+                Text("\(Int(playbackStore.volume * 100))%")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: trailingWidth, alignment: .trailing)
             }
 
             if let loop = playbackStore.loopRange {
