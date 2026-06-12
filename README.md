@@ -4,18 +4,9 @@ A SwiftUI lab app for exploring Apple's `MusicUnderstanding` framework through s
 
 The app is built as a hands-on music analysis workspace: import a song, inspect its musical structure, compare multiple analyzed tracks, find transition candidates, rehearse section loops, and monitor loudness from a generated audio stream.
 
-## Screenshots
-
 <p>
   <img width="1320" height="2868" alt="Screenshot iPhone 17 Pro Max 12 06 2026 at 10 54 35" src="https://github.com/user-attachments/assets/10a07d7a-849f-4bf5-bed9-790a1a389e32" />
   <img width="1320" height="2868" alt="Screenshot iPhone 17 Pro Max 12 06 2026 at 10 54 42" src="https://github.com/user-attachments/assets/c8c13694-771e-4329-86cd-deb6e78a3e40" />
-  <img width="1320" height="2868" alt="Screenshot iPhone 17 Pro Max 12 06 2026 at 10 56 09" src="https://github.com/user-attachments/assets/d24f64bd-7331-4c4b-903c-8f496d24eb21" />
-</p>
-
-<p>  
-  <img width="1320" height="2868" alt="Screenshot iPhone 17 Pro Max 12 06 2026 at 10 56 13" src="https://github.com/user-attachments/assets/f26ca1f5-43fd-4ae1-95c1-de2455121591" />
-  <img width="1320" height="2868" alt="Screenshot iPhone 17 Pro Max 12 06 2026 at 10 56 21" src="https://github.com/user-attachments/assets/cefc97f5-ebc1-496e-8f17-17ff04c61991" />
-  <img width="1320" height="2868" alt="Screenshot iPhone 17 Pro Max 12 06 2026 at 10 56 42" src="https://github.com/user-attachments/assets/fe778fad-b837-4960-8fcc-56dd1fada4d3" />
 </p>
 
 ## Features
@@ -40,17 +31,25 @@ Import a song and inspect the generated music understanding document. The analys
 
 Collect analyzed songs into a comparison view. This screen summarizes the library, lists per-song metrics, visualizes BPM/energy distribution, and prepares dataset exports.
 
+<img width="1320" height="2868" alt="Screenshot iPhone 17 Pro Max 12 06 2026 at 10 56 09" src="https://github.com/user-attachments/assets/d24f64bd-7331-4c4b-903c-8f496d24eb21" />
+
 ### DJ Finder
 
 Ranks transition candidates between analyzed songs. Matches are scored using BPM distance, key compatibility, and energy similarity.
+
+<img width="1320" height="2868" alt="Screenshot iPhone 17 Pro Max 12 06 2026 at 10 56 13" src="https://github.com/user-attachments/assets/f26ca1f5-43fd-4ae1-95c1-de2455121591" />
 
 ### Practice
 
 Turns an analyzed song into a rehearsal companion. You can play the track, jump through sections, loop song parts, and follow current bar/beat markers.
 
+<img width="1320" height="2868" alt="Screenshot iPhone 17 Pro Max 12 06 2026 at 10 56 21" src="https://github.com/user-attachments/assets/cefc97f5-ebc1-496e-8f17-17ff04c61991" />
+
 ### Streaming
 
 Creates a generated PCM audio stream and analyzes loudness as samples arrive. Frequency, amplitude, and duration can be adjusted live before starting a run.
+
+<img width="1320" height="2868" alt="Screenshot iPhone 17 Pro Max 12 06 2026 at 10 56 42" src="https://github.com/user-attachments/assets/fe778fad-b837-4960-8fcc-56dd1fada4d3" />
 
 ## Requirements
 
