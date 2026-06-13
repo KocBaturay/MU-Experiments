@@ -1,12 +1,12 @@
 # Music Understanding Experiments
 
-A SwiftUI lab app for exploring Apple's `MusicUnderstanding` framework through song analysis, dataset comparison, DJ transition matching, practice tools, and live PCM stream analysis.
+A SwiftUI demo app for exploring Apple's `MusicUnderstanding` framework through song analysis, dataset comparison, DJ transition matching, practice tools, and live PCM stream analysis.
 
 The app is built as a hands-on music analysis workspace: import a song, inspect its musical structure, compare multiple analyzed tracks, find transition candidates, rehearse section loops, and monitor loudness from a generated audio stream.
 
 <p>
-  <img width="336" height="730" alt="606996078-10a07d7a-849f-4bf5-bed9-790a1a389e32" src="https://github.com/user-attachments/assets/063d100e-93ce-4232-a5fc-70ea4a23c2da" />
-  <img width="336" height="730" alt="606996247-c8c13694-771e-4329-86cd-deb6e78a3e40" src="https://github.com/user-attachments/assets/7d13a2f5-9c7f-4017-b08e-738ef394debc" />
+  <img width="336" height="730" alt="Screenshot iPhone 17 Pro Max 12 06 2026 at 10 54 35" src="https://github.com/user-attachments/assets/3316b7d8-913e-4eba-b948-fc3453a7c431" />
+  <img width="336" height="730" alt="Screenshot iPhone 17 Pro Max 12 06 2026 at 10 54 42" src="https://github.com/user-attachments/assets/e72e8121-9946-476e-ae3e-816cda03452b" />
 </p>
 
 ## Features
