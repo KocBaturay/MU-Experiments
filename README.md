@@ -53,7 +53,7 @@ Creates a generated PCM audio stream and analyzes loudness as samples arrive. Fr
 
 ## Requirements
 
-- Xcode with support for the `MusicUnderstanding` framework
+- Xcode 27
 - SwiftUI
 - Apple platform SDKs matching the project configuration
 - A simulator or device capable of running the selected target
@@ -80,3 +80,5 @@ Dataset exports include:
 ## Notes
 
 This project is an experimentation space for music analysis workflows. The UI is optimized for quickly moving between analysis, comparison, DJ preparation, rehearsal, and live-stream inspection rather than for a single production workflow.
+
+Official documentation: https://developer.apple.com/documentation/musicunderstanding 
